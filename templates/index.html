@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Brooklyn Foot Traffic</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0f0f0f; color: #fff; }
+
+        #header {
+            position: fixed; top: 0; left: 0; right: 0; z-index: 1000;
+            background: rgba(15,15,15,0.92); backdrop-filter: blur(8px);
+            padding: 14px 20px;
+            display: flex; align-items: center; gap: 20px;
+            border-bottom: 1px solid #222;
+        }
+        #header h1 { font-size: 16px; font-weight: 600; letter-spacing: 0.03em; color: #fff; }
+        #header span { font-size: 12px; color: #666; }
+
+        .filter-group { display: flex; gap: 6px; margin-left: auto; }
+        .filter-btn {
+            padding: 6px 16px; border-radius: 20px; border: 1px solid #333;
+            background: transparent; color: #aaa; font-size: 13px; cursor: pointer;
+            transition: all 0.15s;
+        }
+        .filter-btn:hover { border-color: #555; color: #fff; }
+        .filter-btn.active { background: #fff; color: #000; border-color: #fff; font-weight: 600; }
+
+        #map { position: fixed; top: 52px; left: 0; right: 0; bottom: 0; }
+
+        #legend {
+            position: fixed; bottom: 24px; left: 20px; z-index: 1000;
+            background: rgba(15,15,15,0.88); backdrop-filter: blur(6px);
+            border: 1px solid #222; border-radius: 10px; padding: 12px 16px;
+            font-size: 12px; color: #aaa;
+        }
+        #legend .title { font-weight: 600; color: #fff; margin-bottom: 8px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; }
+        .legend-row { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+        .legend-dot { width: 10px; height: 10px; border-radius: 50%; }
+
+        #stats {
+            position: fixed; bottom: 24px; right: 20px; z-index: 1000;
+            background: rgba(15,15,15,0.88); backdrop-filter: blur(6px);
+            border: 1px solid #222; border-radius: 10px; padding: 12px 16px;
+            font-size: 12px; color: #aaa; text-align: right;
+        }
+        #stats .count { font-size: 22px; font-weight: 700; color: #fff; }
+
+        .leaflet-popup-content-wrapper {
+            background: #1a1a1a; color: #fff; border: 1px solid #333;
+            border-radius: 8px; box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+        }
+        .leaflet-popup-tip { background: #1a1a1a; }
+        .leaflet-popup-content { margin: 12px 16px; }
+        .popup-street { font-weight: 600; font-size: 14px; margin-bottom: 4px; }
+        .popup-cross { font-size: 12px; color: #888; margin-bottom: 10px; }
+        .popup-counts { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; text-align: center; }
+        .popup-count-item .label { font-size: 10px; color: #666; text-transform: uppercase; letter-spacing: 0.05em; }
+        .popup-count-item .value { font-size: 16px; font-weight: 700; color: #fff; }
+        .popup-count-item.active .value { color: #4ade80; }
+    </style>
+</head>
+<body>
+    <div id="header">
+        <h1>Brooklyn Foot Traffic</h1>
+        <span>May 2025 &middot; NYC DOT Pedestrian Counts</span>
+        <div class="filter-group">
+            <button class="filter-btn" data-time="am">Morning</button>
+            <button class="filter-btn active" data-time="pm">Evening</button>
+            <button class="filter-btn" data-time="md">Midday</button>
+        </div>
+    </div>
+
+    <div id="map"></div>
+
+    <div id="legend">
+        <div class="title">Pedestrian Count</div>
+        <div class="legend-row"><div class="legend-dot" style="background:#ef4444"></div>High</div>
+        <div class="legend-row"><div class="legend-dot" style="background:#f97316"></div>Medium-High</div>
+        <div class="legend-row"><div class="legend-dot" style="background:#eab308"></div>Medium</div>
+        <div class="legend-row"><div class="legend-dot" style="background:#22c55e"></div>Low-Medium</div>
+        <div class="legend-row"><div class="legend-dot" style="background:#3b82f6"></div>Low</div>
+    </div>
+
+    <div id="stats">
+        <div class="count" id="total-count">--</div>
+        <div>intersections tracked</div>
+    </div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script>
+        const map = L.map('map', {
+            center: [40.6501, -73.9496],
+            zoom: 13,
+            zoomControl: false
+        });
+
+        L.control.zoom({ position: 'topright' }).addTo(map);
+
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+            attribution: '&copy; OpenStreetMap &copy; CARTO',
+            subdomains: 'abcd',
+            maxZoom: 19
+        }).addTo(map);
+
+        let currentTime = 'pm';
+        let markersLayer = L.layerGroup().addTo(map);
+
+        function getColor(count, max) {
+            const r = count / max;
+            if (r >= 0.8) return '#ef4444';
+            if (r >= 0.6) return '#f97316';
+            if (r >= 0.4) return '#eab308';
+            if (r >= 0.2) return '#22c55e';
+            return '#3b82f6';
+        }
+
+        function getRadius(count, max) {
+            const r = count / max;
+            return 5 + r * 14;
+        }
+
+        async function loadData(time) {
+            const resp = await fetch('/api/data?time=' + time);
+            const geojson = await resp.json();
+            const features = geojson.features;
+
+            markersLayer.clearLayers();
+            if (!features.length) return;
+
+            const max = Math.max(...features.map(f => f.properties.count));
+            document.getElementById('total-count').textContent = features.length;
+
+            features.forEach(f => {
+                const p = f.properties;
+                const coords = f.geometry.coordinates;
+                const color = getColor(p.count, max);
+                const radius = getRadius(p.count, max);
+
+                const circle = L.circleMarker([coords[1], coords[0]], {
+                    radius: radius,
+                    fillColor: color,
+                    color: 'transparent',
+                    fillOpacity: 0.75,
+                    weight: 0,
+                });
+
+                circle.bindPopup(
+                    '<div class="popup-street">' + p.street + '</div>' +
+                    '<div class="popup-cross">' + p.from + ' &rarr; ' + p.to + '</div>' +
+                    '<div class="popup-counts">' +
+                        '<div class="popup-count-item ' + (time === 'am' ? 'active' : '') + '">' +
+                            '<div class="label">Morning</div>' +
+                            '<div class="value">' + p.am.toLocaleString() + '</div>' +
+                        '</div>' +
+                        '<div class="popup-count-item ' + (time === 'md' ? 'active' : '') + '">' +
+                            '<div class="label">Midday</div>' +
+                            '<div class="value">' + p.md.toLocaleString() + '</div>' +
+                        '</div>' +
+                        '<div class="popup-count-item ' + (time === 'pm' ? 'active' : '') + '">' +
+                            '<div class="label">Evening</div>' +
+                            '<div class="value">' + p.pm.toLocaleString() + '</div>' +
+                        '</div>' +
+                    '</div>'
+                );
+
+                markersLayer.addLayer(circle);
+            });
+        }
+
+        document.querySelectorAll('.filter-btn').forEach(function(btn) {
+            btn.addEventListener('click', function() {
+                document.querySelectorAll('.filter-btn').forEach(function(b) { b.classList.remove('active'); });
+                btn.classList.add('active');
+                currentTime = btn.dataset.time;
+                loadData(currentTime);
+            });
+        });
+
+        loadData(currentTime);
+    </script>
+</body>
+</html>

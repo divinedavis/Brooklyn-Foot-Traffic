@@ -13,6 +13,7 @@ from fastapi.templating import Jinja2Templates
 DB_PATH = "/home/foottraffic/foottraffic.db"
 NYC_COUNTS_API = "https://data.cityofnewyork.us/resource/cqsj-cfgu.json"
 NYC_CENTERLINE_API = "https://data.cityofnewyork.us/resource/inkn-q76z.json"
+MTA_RIDERSHIP_API = "https://data.ny.gov/resource/5wq4-mkjj.json"
 
 ABBREVS = {
     "AVENUE": "AVE", "STREET": "ST", "BOULEVARD": "BLVD", "PLACE": "PL",
@@ -54,6 +55,17 @@ def init_db():
             geometry_json TEXT
         )
     """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS stations (
+            id INTEGER PRIMARY KEY,
+            station_complex_id TEXT UNIQUE,
+            name TEXT,
+            lines TEXT,
+            lat REAL,
+            lng REAL,
+            ridership INTEGER
+        )
+    """)
     # Add geometry_json column if upgrading from old schema
     try:
         conn.execute("ALTER TABLE locations ADD COLUMN geometry_json TEXT")
@@ -61,6 +73,39 @@ def init_db():
         pass
     conn.commit()
     conn.close()
+
+async def fetch_stations():
+    print("Fetching Brooklyn subway station ridership from MTA...")
+    params = {
+        "$select": "station_complex,station_complex_id,latitude,longitude,sum(ridership) as total_ridership",
+        "$where": "borough='Brooklyn'",
+        "$group": "station_complex,station_complex_id,latitude,longitude",
+        "$order": "total_ridership DESC",
+        "$limit": 50,
+    }
+    async with httpx.AsyncClient(timeout=30) as client:
+        resp = await client.get(MTA_RIDERSHIP_API, params=params)
+        data = resp.json()
+
+    conn = sqlite3.connect(DB_PATH)
+    for row in data:
+        name_raw = row.get("station_complex", "")
+        lines_match = re.search(r'\(([^)]+)\)', name_raw)
+        lines = lines_match.group(1) if lines_match else ""
+        name = re.sub(r'\s*\([^)]+\)', '', name_raw).strip()
+        conn.execute("""
+            INSERT OR REPLACE INTO stations
+              (station_complex_id, name, lines, lat, lng, ridership)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (
+            row.get("station_complex_id"), name, lines,
+            float(row.get("latitude", 0)),
+            float(row.get("longitude", 0)),
+            int(float(row.get("total_ridership", 0))),
+        ))
+    conn.commit()
+    conn.close()
+    print(f"Cached {len(data)} Brooklyn subway stations.")
 
 async def fetch_street_geometry(client, lat, lng, street_name):
     try:
@@ -163,6 +208,7 @@ async def fetch_and_cache():
 async def lifespan(app: FastAPI):
     init_db()
     await fetch_and_cache()
+    await fetch_stations()
     yield
 
 app = FastAPI(lifespan=lifespan)
@@ -209,7 +255,28 @@ async def get_data(time: str = "pm"):
 
     return JSONResponse({"type": "FeatureCollection", "features": features})
 
+@app.get("/api/stations")
+async def get_stations():
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    rows = conn.execute("SELECT * FROM stations ORDER BY ridership DESC").fetchall()
+    conn.close()
+
+    features = []
+    for r in rows:
+        features.append({
+            "type": "Feature",
+            "geometry": {"type": "Point", "coordinates": [r["lng"], r["lat"]]},
+            "properties": {
+                "name": r["name"],
+                "lines": r["lines"],
+                "ridership": r["ridership"],
+            }
+        })
+    return JSONResponse({"type": "FeatureCollection", "features": features})
+
 @app.get("/api/refresh")
 async def refresh():
     await fetch_and_cache()
+    await fetch_stations()
     return {"status": "ok"}

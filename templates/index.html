@@ -60,6 +60,58 @@
         .popup-count-item .label { font-size: 10px; color: #666; text-transform: uppercase; letter-spacing: 0.05em; }
         .popup-count-item .value { font-size: 16px; font-weight: 700; color: #fff; }
         .popup-count-item.active .value { color: #4ade80; }
+
+        /* Subway station marker */
+        .station-marker {
+            background: #0f0f0f;
+            border: 2px solid #fff;
+            border-radius: 8px;
+            padding: 5px 8px;
+            display: flex;
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 4px;
+            box-shadow: 0 0 0 1px rgba(255,255,255,0.15), 0 3px 12px rgba(0,0,0,0.7);
+            min-width: 0;
+            cursor: pointer;
+        }
+        .station-header {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            white-space: nowrap;
+        }
+        .station-icon {
+            font-size: 13px;
+            line-height: 1;
+        }
+        .station-name {
+            font-size: 11px;
+            font-weight: 700;
+            color: #fff;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            letter-spacing: 0.01em;
+        }
+        .station-bullets {
+            display: flex;
+            gap: 3px;
+            flex-wrap: wrap;
+        }
+        .line-bullet {
+            width: 15px;
+            height: 15px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 8px;
+            font-weight: 900;
+            color: #fff;
+            font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif;
+            flex-shrink: 0;
+        }
+        /* Yellow lines need dark text */
+        .line-bullet.dark-text { color: #000; }
     </style>
 </head>
 <body>
@@ -261,6 +313,66 @@
         });
 
         loadData(currentTime);
+
+        // ── Subway stations ────────────────────────────────────────────────────
+        const LINE_COLORS = {
+            'A':'#0039A6','C':'#0039A6','E':'#0039A6',
+            'B':'#FF6319','D':'#FF6319','F':'#FF6319','M':'#FF6319',
+            'G':'#6CBE45',
+            'J':'#996633','Z':'#996633',
+            'L':'#A7A9AC',
+            'N':'#FCCC0A','Q':'#FCCC0A','R':'#FCCC0A','W':'#FCCC0A',
+            '1':'#EE352E','2':'#EE352E','3':'#EE352E',
+            '4':'#00933C','5':'#00933C','6':'#00933C',
+            '7':'#B933AD',
+            'S':'#808183',
+        };
+        const YELLOW_LINES = new Set(['N','Q','R','W']);
+
+        function makeBullets(linesStr) {
+            return linesStr.split(',').map(function(l) {
+                l = l.trim();
+                var color = LINE_COLORS[l] || '#555';
+                var dark = YELLOW_LINES.has(l) ? ' dark-text' : '';
+                return '<div class="line-bullet' + dark + '" style="background:' + color + '">' + l + '</div>';
+            }).join('');
+        }
+
+        var stationsLayer = L.layerGroup().addTo(map);
+
+        async function loadStations() {
+            const resp = await fetch('/api/stations');
+            const geojson = await resp.json();
+
+            geojson.features.forEach(function(f) {
+                const p = f.properties;
+                const coords = f.geometry.coordinates;
+
+                var icon = L.divIcon({
+                    className: '',
+                    html: '<div class="station-marker">' +
+                              '<div class="station-header">' +
+                                  '<span class="station-icon">🚇</span>' +
+                                  '<span class="station-name">' + p.name + '</span>' +
+                              '</div>' +
+                              '<div class="station-bullets">' + makeBullets(p.lines) + '</div>' +
+                          '</div>',
+                    iconAnchor: [0, 0],
+                });
+
+                var marker = L.marker([coords[1], coords[0]], { icon: icon });
+                marker.bindPopup(
+                    '<div class="popup-street">' + p.name + '</div>' +
+                    '<div class="popup-cross" style="margin-bottom:8px">Subway Station</div>' +
+                    '<div class="station-bullets" style="margin-bottom:10px">' + makeBullets(p.lines) + '</div>' +
+                    '<div style="font-size:12px;color:#aaa">2025 ridership: <strong style="color:#fff">' +
+                    p.ridership.toLocaleString() + '</strong></div>'
+                );
+                stationsLayer.addLayer(marker);
+            });
+        }
+
+        loadStations();
     </script>
 </body>
 </html>

@@ -65,32 +65,18 @@
         .station-marker {
             background: #0f0f0f;
             border: 2px solid #fff;
-            border-radius: 8px;
-            padding: 5px 8px;
-            display: flex;
-            flex-direction: column;
-            align-items: flex-start;
-            gap: 4px;
-            box-shadow: 0 0 0 1px rgba(255,255,255,0.15), 0 3px 12px rgba(0,0,0,0.7);
-            min-width: 0;
-            cursor: pointer;
-        }
-        .station-header {
+            border-radius: 50%;
+            width: 28px;
+            height: 28px;
             display: flex;
             align-items: center;
-            gap: 5px;
-            white-space: nowrap;
+            justify-content: center;
+            box-shadow: 0 0 0 1px rgba(255,255,255,0.15), 0 3px 12px rgba(0,0,0,0.7);
+            cursor: pointer;
         }
         .station-icon {
-            font-size: 13px;
+            font-size: 14px;
             line-height: 1;
-        }
-        .station-name {
-            font-size: 11px;
-            font-weight: 700;
-            color: #fff;
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-            letter-spacing: 0.01em;
         }
         .station-bullets {
             display: flex;
@@ -350,14 +336,8 @@
 
                 var icon = L.divIcon({
                     className: '',
-                    html: '<div class="station-marker">' +
-                              '<div class="station-header">' +
-                                  '<span class="station-icon">🚇</span>' +
-                                  '<span class="station-name">' + p.name + '</span>' +
-                              '</div>' +
-                              '<div class="station-bullets">' + makeBullets(p.lines) + '</div>' +
-                          '</div>',
-                    iconAnchor: [0, 0],
+                    html: '<div class="station-marker"><span class="station-icon">🚇</span></div>',
+                    iconAnchor: [14, 14],
                 });
 
                 var marker = L.marker([coords[1], coords[0]], { icon: icon });

@@ -107,6 +107,8 @@
 
         let currentTime = 'pm';
         let markersLayer = L.layerGroup().addTo(map);
+        let gradientCleanups = [];
+        let gradCounter = 0;
 
         function getColor(count, max) {
             const r = count / max;
@@ -138,11 +140,72 @@
             );
         }
 
+        // Inject an SVG linearGradient onto a polyline path so it fades at both ends.
+        // Re-applies on zoomend since pixel coords change with zoom.
+        function applyFadeGradient(line, latlngs, color, opacity) {
+            const gradId = 'fgrad-' + (gradCounter++);
+
+            function apply() {
+                var path = line.getElement();
+                if (!path) return;
+                var svg = path.ownerSVGElement;
+                if (!svg) return;
+
+                var first = latlngs[0];
+                var last  = latlngs[latlngs.length - 1];
+                var p1 = map.latLngToLayerPoint(L.latLng(first[0], first[1]));
+                var p2 = map.latLngToLayerPoint(L.latLng(last[0],  last[1]));
+
+                var NS = 'http://www.w3.org/2000/svg';
+                var defs = svg.querySelector('defs');
+                if (!defs) {
+                    defs = document.createElementNS(NS, 'defs');
+                    svg.insertBefore(defs, svg.firstChild);
+                }
+
+                var existing = defs.querySelector('#' + gradId);
+                if (existing) existing.remove();
+
+                var grad = document.createElementNS(NS, 'linearGradient');
+                grad.setAttribute('id', gradId);
+                grad.setAttribute('gradientUnits', 'userSpaceOnUse');
+                grad.setAttribute('x1', p1.x); grad.setAttribute('y1', p1.y);
+                grad.setAttribute('x2', p2.x); grad.setAttribute('y2', p2.y);
+
+                [[0, 0], [0.18, opacity], [0.82, opacity], [1, 0]].forEach(function(s) {
+                    var stop = document.createElementNS(NS, 'stop');
+                    stop.setAttribute('offset', (s[0] * 100) + '%');
+                    stop.setAttribute('stop-color', color);
+                    stop.setAttribute('stop-opacity', s[1]);
+                    grad.appendChild(stop);
+                });
+
+                defs.appendChild(grad);
+                path.setAttribute('stroke', 'url(#' + gradId + ')');
+            }
+
+            line.on('add', apply);
+            map.on('zoomend', apply);
+
+            // Return cleanup fn to remove listener and defs entry on layer clear
+            return function() {
+                map.off('zoomend', apply);
+                var path = line.getElement();
+                if (path && path.ownerSVGElement) {
+                    var el = path.ownerSVGElement.querySelector('#' + gradId);
+                    if (el) el.remove();
+                }
+            };
+        }
+
         async function loadData(time) {
             const resp = await fetch('/api/data?time=' + time);
             const geojson = await resp.json();
             const features = geojson.features;
 
+            // Clean up old gradient listeners
+            gradientCleanups.forEach(function(fn) { fn(); });
+            gradientCleanups = [];
             markersLayer.clearLayers();
             if (!features.length) return;
 
@@ -155,41 +218,32 @@
                 const popup = buildPopup(p, time);
 
                 if (f.geometry.type === 'LineString') {
-                    // Convert [lng, lat] -> [lat, lng] for Leaflet
                     const latlngs = f.geometry.coordinates.map(function(c) {
                         return [c[1], c[0]];
                     });
 
-                    // Glow layer (thick, semi-transparent)
-                    L.polyline(latlngs, {
-                        color: color,
-                        weight: 10,
-                        opacity: 0.25,
-                        lineCap: 'round',
-                        lineJoin: 'round',
-                        interactive: false,
-                    }).addTo(markersLayer);
+                    // Glow layer
+                    var glow = L.polyline(latlngs, {
+                        color: color, weight: 12, opacity: 0.22,
+                        lineCap: 'round', lineJoin: 'round', interactive: false,
+                    });
+                    glow.addTo(markersLayer);
+                    gradientCleanups.push(applyFadeGradient(glow, latlngs, color, 0.22));
 
                     // Main line
-                    const line = L.polyline(latlngs, {
-                        color: color,
-                        weight: 4,
-                        opacity: 0.9,
-                        lineCap: 'round',
-                        lineJoin: 'round',
+                    var line = L.polyline(latlngs, {
+                        color: color, weight: 4, opacity: 0.9,
+                        lineCap: 'round', lineJoin: 'round',
                     });
                     line.bindPopup(popup);
                     markersLayer.addLayer(line);
+                    gradientCleanups.push(applyFadeGradient(line, latlngs, color, 0.9));
 
                 } else {
-                    // Fallback: circle marker for locations without geometry
-                    const coords = f.geometry.coordinates;
-                    const circle = L.circleMarker([coords[1], coords[0]], {
-                        radius: 7,
-                        fillColor: color,
-                        color: 'transparent',
-                        fillOpacity: 0.75,
-                        weight: 0,
+                    var coords = f.geometry.coordinates;
+                    var circle = L.circleMarker([coords[1], coords[0]], {
+                        radius: 7, fillColor: color, color: 'transparent',
+                        fillOpacity: 0.75, weight: 0,
                     });
                     circle.bindPopup(popup);
                     markersLayer.addLayer(circle);

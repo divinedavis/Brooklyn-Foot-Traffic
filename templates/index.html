@@ -38,7 +38,7 @@
         }
         #legend .title { font-weight: 600; color: #fff; margin-bottom: 8px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; }
         .legend-row { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
-        .legend-dot { width: 10px; height: 10px; border-radius: 50%; }
+        .legend-line { width: 20px; height: 3px; border-radius: 2px; }
 
         #stats {
             position: fixed; bottom: 24px; right: 20px; z-index: 1000;
@@ -77,16 +77,16 @@
 
     <div id="legend">
         <div class="title">Pedestrian Count</div>
-        <div class="legend-row"><div class="legend-dot" style="background:#ef4444"></div>High</div>
-        <div class="legend-row"><div class="legend-dot" style="background:#f97316"></div>Medium-High</div>
-        <div class="legend-row"><div class="legend-dot" style="background:#eab308"></div>Medium</div>
-        <div class="legend-row"><div class="legend-dot" style="background:#22c55e"></div>Low-Medium</div>
-        <div class="legend-row"><div class="legend-dot" style="background:#3b82f6"></div>Low</div>
+        <div class="legend-row"><div class="legend-line" style="background:#ef4444"></div>High</div>
+        <div class="legend-row"><div class="legend-line" style="background:#f97316"></div>Medium-High</div>
+        <div class="legend-row"><div class="legend-line" style="background:#eab308"></div>Medium</div>
+        <div class="legend-row"><div class="legend-line" style="background:#22c55e"></div>Low-Medium</div>
+        <div class="legend-row"><div class="legend-line" style="background:#3b82f6"></div>Low</div>
     </div>
 
     <div id="stats">
         <div class="count" id="total-count">--</div>
-        <div>intersections tracked</div>
+        <div>streets tracked</div>
     </div>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -117,9 +117,25 @@
             return '#3b82f6';
         }
 
-        function getRadius(count, max) {
-            const r = count / max;
-            return 5 + r * 14;
+        function buildPopup(p, time) {
+            return (
+                '<div class="popup-street">' + p.street + '</div>' +
+                '<div class="popup-cross">' + p.from + ' &rarr; ' + p.to + '</div>' +
+                '<div class="popup-counts">' +
+                    '<div class="popup-count-item ' + (time === 'am' ? 'active' : '') + '">' +
+                        '<div class="label">Morning</div>' +
+                        '<div class="value">' + p.am.toLocaleString() + '</div>' +
+                    '</div>' +
+                    '<div class="popup-count-item ' + (time === 'md' ? 'active' : '') + '">' +
+                        '<div class="label">Midday</div>' +
+                        '<div class="value">' + p.md.toLocaleString() + '</div>' +
+                    '</div>' +
+                    '<div class="popup-count-item ' + (time === 'pm' ? 'active' : '') + '">' +
+                        '<div class="label">Evening</div>' +
+                        '<div class="value">' + p.pm.toLocaleString() + '</div>' +
+                    '</div>' +
+                '</div>'
+            );
         }
 
         async function loadData(time) {
@@ -133,40 +149,51 @@
             const max = Math.max(...features.map(f => f.properties.count));
             document.getElementById('total-count').textContent = features.length;
 
-            features.forEach(f => {
+            features.forEach(function(f) {
                 const p = f.properties;
-                const coords = f.geometry.coordinates;
                 const color = getColor(p.count, max);
-                const radius = getRadius(p.count, max);
+                const popup = buildPopup(p, time);
 
-                const circle = L.circleMarker([coords[1], coords[0]], {
-                    radius: radius,
-                    fillColor: color,
-                    color: 'transparent',
-                    fillOpacity: 0.75,
-                    weight: 0,
-                });
+                if (f.geometry.type === 'LineString') {
+                    // Convert [lng, lat] -> [lat, lng] for Leaflet
+                    const latlngs = f.geometry.coordinates.map(function(c) {
+                        return [c[1], c[0]];
+                    });
 
-                circle.bindPopup(
-                    '<div class="popup-street">' + p.street + '</div>' +
-                    '<div class="popup-cross">' + p.from + ' &rarr; ' + p.to + '</div>' +
-                    '<div class="popup-counts">' +
-                        '<div class="popup-count-item ' + (time === 'am' ? 'active' : '') + '">' +
-                            '<div class="label">Morning</div>' +
-                            '<div class="value">' + p.am.toLocaleString() + '</div>' +
-                        '</div>' +
-                        '<div class="popup-count-item ' + (time === 'md' ? 'active' : '') + '">' +
-                            '<div class="label">Midday</div>' +
-                            '<div class="value">' + p.md.toLocaleString() + '</div>' +
-                        '</div>' +
-                        '<div class="popup-count-item ' + (time === 'pm' ? 'active' : '') + '">' +
-                            '<div class="label">Evening</div>' +
-                            '<div class="value">' + p.pm.toLocaleString() + '</div>' +
-                        '</div>' +
-                    '</div>'
-                );
+                    // Glow layer (thick, semi-transparent)
+                    L.polyline(latlngs, {
+                        color: color,
+                        weight: 10,
+                        opacity: 0.25,
+                        lineCap: 'round',
+                        lineJoin: 'round',
+                        interactive: false,
+                    }).addTo(markersLayer);
 
-                markersLayer.addLayer(circle);
+                    // Main line
+                    const line = L.polyline(latlngs, {
+                        color: color,
+                        weight: 4,
+                        opacity: 0.9,
+                        lineCap: 'round',
+                        lineJoin: 'round',
+                    });
+                    line.bindPopup(popup);
+                    markersLayer.addLayer(line);
+
+                } else {
+                    // Fallback: circle marker for locations without geometry
+                    const coords = f.geometry.coordinates;
+                    const circle = L.circleMarker([coords[1], coords[0]], {
+                        radius: 7,
+                        fillColor: color,
+                        color: 'transparent',
+                        fillOpacity: 0.75,
+                        weight: 0,
+                    });
+                    circle.bindPopup(popup);
+                    markersLayer.addLayer(circle);
+                }
             });
         }
 

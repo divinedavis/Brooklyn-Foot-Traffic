@@ -1,0 +1,22 @@
+# Environment & secrets
+.env
+*.env
+.env.*
+secrets.json
+
+# Database
+*.db
+*.sqlite
+
+# Python
+__pycache__/
+*.pyc
+venv/
+
+# Logs
+*.log
+logs/
+
+# OS
+.DS_Store
+Thumbs.db

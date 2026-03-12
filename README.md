@@ -2,7 +2,7 @@
 
 An interactive map that helps small businesses identify high foot-traffic streets in Brooklyn, giving them data-driven insight into where to open a new location.
 
-**Live site:** [167.71.170.219:8082](http://167.71.170.219:8082)
+**Live site:** Coming soon — domain not yet assigned
 
 ## Features
 

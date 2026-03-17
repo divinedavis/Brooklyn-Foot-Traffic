@@ -6,8 +6,8 @@ cd /home/foottraffic
 curl -s http://127.0.0.1:8082/api/refresh > /dev/null
 
 # Push any changes to GitHub
-git config user.email "${GIT_USER_EMAIL}"
-git config user.name "Divine Davis"
+git config --replace-all user.email "${GIT_USER_EMAIL}"
+git config --replace-all user.name "Divine Davis"
 
 git add -A
 if git diff --cached --quiet; then

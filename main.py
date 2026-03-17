@@ -182,11 +182,17 @@ async def fetch_and_cache():
 
     conn.commit()
 
-    # Fetch street geometries concurrently
+    # Fetch street geometries with bounded concurrency
     print(f"Fetching street geometries for {len(rows_to_geocode)} locations...")
+    semaphore = asyncio.Semaphore(10)
+
+    async def fetch_with_semaphore(client, lat, lng, name):
+        async with semaphore:
+            return await fetch_street_geometry(client, lat, lng, name)
+
     async with httpx.AsyncClient(timeout=30) as client:
         tasks = [
-            fetch_street_geometry(client, lat, lng, name)
+            fetch_with_semaphore(client, lat, lng, name)
             for _, lat, lng, name in rows_to_geocode
         ]
         geometries = await asyncio.gather(*tasks)

@@ -238,6 +238,51 @@ async def get_data(time: str = "pm"):
     features = []
     for r in rows:
         geo_coords = json.loads(r["geometry_json"]) if r["geometry_json"] else None
+        features.append({
+            "type": "Feature",
+            "geometry": {
+                "type": "LineString",
+                "coordinates": geo_coords
+            } if geo_coords else {
+                "type": "Point",
+                "coordinates": [r["lng"], r["lat"]]
+            },
+            "properties": {
+                "objectid": r["objectid"],
+                "street_name": r["street_name"],
+                "from_street": r["from_street"],
+                "to_street": r["to_street"],
+                "lat": r["lat"],
+                "lng": r["lng"],
+                "am": r["am"],
+                "pm": r["pm"],
+                "md": r["md"],
+            }
+        })
+
+    conn2 = sqlite3.connect(DB_PATH)
+    conn2.row_factory = sqlite3.Row
+    stations = conn2.execute("SELECT * FROM stations ORDER BY ridership DESC").fetchall()
+    conn2.close()
+
+    station_features = []
+    for s in stations:
+        station_features.append({
+            "type": "Feature",
+            "geometry": {"type": "Point", "coordinates": [s["lng"], s["lat"]]},
+            "properties": {
+                "station_complex_id": s["station_complex_id"],
+                "name": s["name"],
+                "lines": s["lines"],
+                "ridership": s["ridership"],
+            }
+        })
+
+    return JSONResponse({
+        "type": "FeatureCollection",
+        "features": features,
+        "stations": station_features,
+    })json"]) if r["geometry_json"] else None
 
         if geo_coords:
             geometry = {"type": "LineString", "coordinates": geo_coords}
